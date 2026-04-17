@@ -1,162 +1,150 @@
-'use client'
-import { useState, useEffect, useRef } from 'react'
-import Sidebar from '@/components/Sidebar'
-import { Send, Bot, User } from 'lucide-react'
+'use client';
 
-const API = 'https://autolead-backend-production.up.railway.app'
-const AGENCY_ID = '6ee07688-9d34-4d18-861c-62585a440cc0'
+import { useState, useEffect } from 'react';
+import { Users, Car, MessageSquare, TrendingUp, Clock, CheckCircle } from 'lucide-react';
 
-export default function Chat() {
-  const [leads, setLeads]           = useState([])
-  const [selected, setSelected]     = useState(null)
-  const [messages, setMessages]     = useState([])
-  const [input, setInput]           = useState('')
-  const [loading, setLoading]       = useState(false)
-  const endRef = useRef(null)
-
-  useEffect(() => {
-    fetch(`${API}/api/leads?agency_id=${AGENCY_ID}`)
-      .then(r => r.json()).then(setLeads).catch(() => {})
-  }, [])
+export default function Dashboard() {
+  const [stats, setStats] = useState({
+    totalLeads: 0,
+    conversasAtivas: 0,
+    totalVeiculos: 0,
+    taxaConversao: 0,
+    leadsHoje: 0,
+    qualificados: 0,
+  });
+  const [recentLeads, setRecentLeads] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior:'smooth' })
-  }, [messages])
+    fetchDashboardData();
+  }, []);
 
-  useEffect(() => {
-    if(!selected) return
-    fetch(`${API}/api/leads/${selected.id}`)
-      .then(r => r.json())
-      .then(d => setMessages((d.messages||[]).map(m => ({ role:m.role, content:m.content }))))
-      .catch(() => setMessages([]))
-  }, [selected])
-
-  async function send() {
-    if(!input.trim() || !selected || loading) return
-    const txt = input
-    setMessages(p => [...p, { role:'user', content:txt }])
-    setInput('')
-    setLoading(true)
+  async function fetchDashboardData() {
     try {
-      const r = await fetch(`${API}/api/agent/chat`, {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ leadId:selected.id, agencyId:AGENCY_ID, conversationId:`conv-${selected.id}`, message:txt })
-      })
-      const d = await r.json()
-      setMessages(p => [...p, { role:'assistant', content:d.reply || d.message || 'Sem resposta' }])
-    } catch {
-      setMessages(p => [...p, { role:'assistant', content:'Erro ao conectar com o agente.' }])
-    } finally { setLoading(false) }
+      const [leadsRes, veiculosRes] = await Promise.all([
+        fetch('http://localhost:3000/api/leads'),
+        fetch('http://localhost:3000/api/vehicles'),
+      ]);
+
+      const leadsData = leadsRes.ok ? await leadsRes.json() : [];
+      const veiculosData = veiculosRes.ok ? await veiculosRes.json() : [];
+
+      const leads = Array.isArray(leadsData) ? leadsData : leadsData.leads || [];
+      const veiculos = Array.isArray(veiculosData) ? veiculosData : veiculosData.vehicles || [];
+
+      const hoje = new Date().toISOString().split('T')[0];
+      const leadsHoje = leads.filter(l => l.createdAt && l.createdAt.startsWith(hoje)).length;
+      const qualificados = leads.filter(l =>
+        (l.status || '').toLowerCase() === 'qualificado'
+      ).length;
+      const conversasAtivas = leads.filter(l =>
+        (l.status || '').toLowerCase() === 'contatado'
+      ).length;
+      const taxaConversao = leads.length > 0
+        ? ((qualificados / leads.length) * 100).toFixed(1)
+        : 0;
+
+      setStats({
+        totalLeads: leads.length,
+        conversasAtivas,
+        totalVeiculos: veiculos.length,
+        taxaConversao,
+        leadsHoje,
+        qualificados,
+      });
+      setRecentLeads(leads.slice(0, 5));
+    } catch (err) {
+      console.error('Erro ao carregar dashboard:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const cards = [
+    { label: 'Total de Leads', value: stats.totalLeads, icon: Users, bg: 'bg-blue-50', iconColor: 'text-blue-600' },
+    { label: 'Conversas Ativas', value: stats.conversasAtivas, icon: MessageSquare, bg: 'bg-green-50', iconColor: 'text-green-600' },
+    { label: 'Veículos Cadastrados', value: stats.totalVeiculos, icon: Car, bg: 'bg-purple-50', iconColor: 'text-purple-600' },
+    { label: 'Taxa de Conversão', value: `${stats.taxaConversao}%`, icon: TrendingUp, bg: 'bg-orange-50', iconColor: 'text-orange-600' },
+    { label: 'Leads Hoje', value: stats.leadsHoje, icon: Clock, bg: 'bg-cyan-50', iconColor: 'text-cyan-600' },
+    { label: 'Qualificados', value: stats.qualificados, icon: CheckCircle, bg: 'bg-emerald-50', iconColor: 'text-emerald-600' },
+  ];
+
+  const statusColor = (status) => {
+    const s = (status || '').toLowerCase();
+    if (s === 'novo') return 'bg-blue-100 text-blue-700';
+    if (s === 'contatado') return 'bg-yellow-100 text-yellow-700';
+    if (s === 'qualificado') return 'bg-green-100 text-green-700';
+    if (s === 'perdido') return 'bg-red-100 text-red-700';
+    return 'bg-gray-100 text-gray-700';
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
   }
 
   return (
-    <div style={{ display:'flex', height:'100vh', background:'var(--bg)', overflow:'hidden' }}>
-      <Sidebar />
-
-      {/* Lista de leads */}
-      <div style={{ width:'240px', minWidth:'240px', borderRight:'1px solid var(--border)', background:'var(--card)', display:'flex', flexDirection:'column' }}>
-        <div style={{ padding:'16px', borderBottom:'1px solid var(--border)' }}>
-          <div style={{ color:'var(--text)', fontWeight:'700', fontSize:'14px' }}>Leads</div>
-          <div style={{ color:'var(--muted2)', fontSize:'11px', marginTop:'2px' }}>Selecione para conversar</div>
-        </div>
-        <div style={{ flex:1, overflowY:'auto' }}>
-          {leads.length === 0 && <div style={{ padding:'20px', color:'var(--muted2)', fontSize:'12px', textAlign:'center' }}>Nenhum lead</div>}
-          {leads.map(l => (
-            <div key={l.id}
-              onClick={() => { setSelected(l); setMessages([]) }}
-              style={{
-                padding:'12px 16px', borderBottom:'1px solid var(--border)', cursor:'pointer',
-                background: selected?.id === l.id ? 'rgba(161,0,194,0.12)' : 'transparent',
-                borderLeft: selected?.id === l.id ? '2px solid var(--accent)' : '2px solid transparent',
-              }}
-            >
-              <div style={{ display:'flex', alignItems:'center', gap:'9px' }}>
-                <div style={{ width:'30px', height:'30px', borderRadius:'50%', background:'rgba(161,0,194,0.15)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                  <span style={{ color:'var(--accent2)', fontSize:'11px', fontWeight:'700' }}>{(l.name||'?').charAt(0).toUpperCase()}</span>
-                </div>
-                <div style={{ minWidth:0 }}>
-                  <div style={{ color:'var(--text)', fontSize:'12px', fontWeight:'600', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{l.name||'—'}</div>
-                  <div style={{ color:'var(--muted2)', fontSize:'10px', marginTop:'1px' }}>Score: {l.score||0}</div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+    <div className="p-6 space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
+        <p className="text-gray-500 text-sm mt-1">Visão geral do sistema AutoLead</p>
       </div>
 
-      {/* Área do chat */}
-      <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
-        {!selected ? (
-          <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:'12px' }}>
-            <Bot size={48} color="var(--accent2)" style={{ opacity:.4 }} />
-            <p style={{ color:'var(--muted)', fontSize:'14px' }}>Selecione um lead para iniciar o chat</p>
-          </div>
-        ) : (
-          <>
-            {/* Header */}
-            <div style={{ padding:'14px 20px', borderBottom:'1px solid var(--border)', background:'var(--card)' }}>
-              <div style={{ color:'var(--text)', fontWeight:'700', fontSize:'14px' }}>{selected.name}</div>
-              <div style={{ color:'var(--muted2)', fontSize:'11px', marginTop:'2px' }}>{selected.email} • Score: {selected.score||0} • {selected.channel||'—'}</div>
-            </div>
-
-            {/* Mensagens */}
-            <div style={{ flex:1, overflowY:'auto', padding:'20px', display:'flex', flexDirection:'column', gap:'14px' }}>
-              {messages.length === 0 && !loading && (
-                <div style={{ textAlign:'center', color:'var(--muted2)', fontSize:'13px', marginTop:'20px' }}>Nenhuma mensagem ainda. Inicie a conversa!</div>
-              )}
-              {messages.map((m, i) => (
-                <div key={i} style={{ display:'flex', gap:'9px', flexDirection: m.role==='user' ? 'row-reverse' : 'row' }}>
-                  <div style={{ width:'28px', height:'28px', borderRadius:'50%', background: m.role==='assistant' ? 'rgba(161,0,194,0.15)' : 'var(--bg3)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                    {m.role==='assistant' ? <Bot size={13} color="var(--accent2)" /> : <User size={13} color="var(--muted2)" />}
-                  </div>
-                  <div style={{
-                    maxWidth:'70%', padding:'9px 14px', borderRadius: m.role==='assistant' ? '3px 12px 12px 12px' : '12px 3px 12px 12px',
-                    background: m.role==='assistant' ? 'var(--card)' : 'var(--accent)',
-                    color: 'var(--text)', fontSize:'13px', lineHeight:'1.55',
-                    border: m.role==='assistant' ? '1px solid var(--border)' : 'none',
-                  }}>
-                    {m.content}
-                  </div>
-                </div>
-              ))}
-              {loading && (
-                <div style={{ display:'flex', gap:'9px' }}>
-                  <div style={{ width:'28px', height:'28px', borderRadius:'50%', background:'rgba(161,0,194,0.15)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                    <Bot size={13} color="var(--accent2)" />
-                  </div>
-                  <div style={{ background:'var(--card)', border:'1px solid var(--border)', padding:'9px 14px', borderRadius:'3px 12px 12px 12px', display:'flex', gap:'5px', alignItems:'center' }}>
-                    {[0,1,2].map(i => (
-                      <div key={i} style={{ width:'6px', height:'6px', borderRadius:'50%', background:'var(--muted2)', animation:`bounce 1.2s ${i*0.2}s infinite` }} />
-                    ))}
-                  </div>
-                </div>
-              )}
-              <div ref={endRef} />
-            </div>
-
-            {/* Input */}
-            <div style={{ padding:'14px 20px', borderTop:'1px solid var(--border)', background:'var(--card)' }}>
-              <div style={{ display:'flex', gap:'9px' }}>
-                <input
-                  value={input} onChange={e => setInput(e.target.value)}
-                  onKeyDown={e => e.key==='Enter' && !e.shiftKey && send()}
-                  placeholder="Digite uma mensagem..."
-                  style={{ flex:1, background:'var(--bg3)', border:'1px solid var(--border2)', borderRadius:'10px', padding:'9px 14px', color:'var(--text)', fontSize:'13px', outline:'none' }}
-                />
-                <button onClick={send} disabled={loading||!input.trim()} style={{
-                  width:'38px', height:'38px', borderRadius:'10px', background:'var(--accent)', border:'none',
-                  display:'flex', alignItems:'center', justifyContent:'center', opacity: (loading||!input.trim()) ? .5 : 1,
-                }}>
-                  <Send size={15} color="#fff" />
-                </button>
+      {/* Cards de métricas */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {cards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <div key={card.label} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
+              <div className={`${card.bg} p-3 rounded-lg`}>
+                <Icon className={`w-6 h-6 ${card.iconColor}`} />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">{card.label}</p>
+                <p className="text-2xl font-bold text-gray-800">{card.value}</p>
               </div>
             </div>
-          </>
+          );
+        })}
+      </div>
+
+      {/* Últimos Leads */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <h2 className="text-lg font-semibold text-gray-800 mb-4">Últimos Leads Cadastrados</h2>
+        {recentLeads.length === 0 ? (
+          <p className="text-gray-400 text-sm text-center py-6">Nenhum lead cadastrado ainda.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500 border-b border-gray-100">
+                  <th className="pb-3 font-medium">Nome</th>
+                  <th className="pb-3 font-medium">Telefone</th>
+                  <th className="pb-3 font-medium">Interesse</th>
+                  <th className="pb-3 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {recentLeads.map((lead, i) => (
+                  <tr key={lead.id || i} className="hover:bg-gray-50">
+                    <td className="py-3 font-medium text-gray-800">{lead.name || lead.nome || '—'}</td>
+                    <td className="py-3 text-gray-600">{lead.phone || lead.telefone || '—'}</td>
+                    <td className="py-3 text-gray-600">{lead.interest || lead.interesse || '—'}</td>
+                    <td className="py-3">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColor(lead.status)}`}>
+                        {lead.status || 'Novo'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
-
-      <style>{`@keyframes bounce { 0%,80%,100%{transform:scale(.6);opacity:.3} 40%{transform:scale(1);opacity:1} }`}</style>
     </div>
-  )
+  );
 }

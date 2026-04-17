@@ -1,548 +1,324 @@
-'use client'
-import { useState, useEffect, useRef } from 'react'
+'use client';
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'https://autolead-backend-production.up.railway.app'
-const AGENCY_ID = process.env.NEXT_PUBLIC_AGENCY_ID || '6ee07688-9d34-4d18-861c-62585a440cc0'
+import { useState, useEffect } from 'react';
+import api from '@/lib/api';
+import { Search, Plus, Filter, MoreVertical, Phone, Mail, Tag, Calendar, User, Trash2, Edit2 } from 'lucide-react';
 
-const STAGES = [
-  { id: 'novo',      label: '🆕 Novo Contato',         color: '#3b82f6', bg: '#1e3a5f' },
-  { id: 'conversa',  label: '💬 Em Conversa',           color: '#f59e0b', bg: '#3d2e0a' },
-  { id: 'interesse', label: '🔍 Interesse Confirmado',  color: '#a100c2', bg: '#2d0a36' },
-  { id: 'proposta',  label: '📝 Proposta Enviada',      color: '#06b6d4', bg: '#042f3d' },
-  { id: 'fechado',   label: '✅ Fechado',               color: '#6dc200', bg: '#1a2e00' },
-  { id: 'perdido',   label: '❌ Perdido',               color: '#ef4444', bg: '#3d0a0a' },
-]
-
-const ORIGINS = ['WhatsApp Ads', 'Instagram', 'Facebook', 'Google', 'Indicação', 'Site', 'Outro']
-
-const SCORE_COLOR = (s) => s >= 80 ? '#6dc200' : s >= 50 ? '#f59e0b' : '#ef4444'
-
-const formatPhone = (p) => {
-  if (!p) return ''
-  const n = p.replace(/\D/g, '')
-  if (n.length === 11) return `(${n.slice(0,2)}) ${n.slice(2,7)}-${n.slice(7)}`
-  return p
-}
-
-const timeAgo = (date) => {
-  if (!date) return ''
-  const diff = Math.floor((Date.now() - new Date(date)) / 1000)
-  if (diff < 60) return 'agora'
-  if (diff < 3600) return `${Math.floor(diff/60)}min atrás`
-  if (diff < 86400) return `${Math.floor(diff/3600)}h atrás`
-  return `${Math.floor(diff/86400)}d atrás`
-}
+const AGENCY_ID = process.env.NEXT_PUBLIC_AGENCY_ID || '6ee07688-9d34-4d18-861c-62585a440cc0';
 
 export default function LeadsPage() {
-  const [leads, setLeads] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [view, setView] = useState('kanban') // kanban | list
-  const [showModal, setShowModal] = useState(false)
-  const [editLead, setEditLead] = useState(null)
-  const [detailLead, setDetailLead] = useState(null)
-  const [dragOver, setDragOver] = useState(null)
-  const [dragging, setDragging] = useState(null)
-  const [search, setSearch] = useState('')
-  const [filterStage, setFilterStage] = useState('all')
-  const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({
-    name: '', phone: '', email: '', interest: '',
-    origin: 'WhatsApp Ads', stage: 'novo', notes: '', vehicle_id: ''
-  })
-  const [vehicles, setVehicles] = useState([])
-  const dragItem = useRef(null)
-
-  useEffect(() => { fetchLeads(); fetchVehicles() }, [])
+  const [leads, setLeads] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [editingLead, setEditingLead] = useState(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    interest: '',
+    budget: '',
+    notes: '',
+    status: 'new'
+  });
 
   const fetchLeads = async () => {
-    setLoading(true)
+    setLoading(true);
     try {
-      const r = await fetch(`${API}/api/leads?agency_id=${AGENCY_ID}`)
-      const d = await r.json()
-      setLeads(Array.isArray(d) ? d : d.leads || [])
-    } catch { setLeads([]) }
-    setLoading(false)
-  }
+      const res = await api.get(`/api/leads?agency_id=${AGENCY_ID}`);
+      setLeads(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error('Erro ao carregar leads:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const fetchVehicles = async () => {
+  useEffect(() => {
+    fetchLeads();
+  }, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     try {
-      const r = await fetch(`${API}/api/vehicles?agency_id=${AGENCY_ID}`)
-      const d = await r.json()
-      setVehicles(Array.isArray(d) ? d : d.vehicles || [])
-    } catch {}
-  }
+      const payload = { ...formData, agency_id: AGENCY_ID };
+      if (editingLead) {
+        await api.put(`/api/leads/${editingLead.id}`, payload);
+      } else {
+        await api.post(`/api/leads`, payload);
+      }
+      await fetchLeads();
+      setShowForm(false);
+      setEditingLead(null);
+      setFormData({ name: '', phone: '', email: '', interest: '', budget: '', notes: '', status: 'new' });
+    } catch (err) {
+      alert('Erro ao salvar lead: ' + err.message);
+    }
+  };
 
-  const openNew = () => {
-    setEditLead(null)
-    setForm({ name:'', phone:'', email:'', interest:'', origin:'WhatsApp Ads', stage:'novo', notes:'', vehicle_id:'' })
-    setShowModal(true)
-  }
-
-  const openEdit = (lead) => {
-    setEditLead(lead)
-    setForm({
+  const handleEdit = (lead) => {
+    setEditingLead(lead);
+    setFormData({
       name: lead.name || '',
       phone: lead.phone || '',
       email: lead.email || '',
       interest: lead.interest || '',
-      origin: lead.origin || 'WhatsApp Ads',
-      stage: lead.stage || 'novo',
+      budget: lead.budget || '',
       notes: lead.notes || '',
-      vehicle_id: lead.vehicle_id || ''
-    })
-    setShowModal(true)
-    setDetailLead(null)
-  }
+      status: lead.status || 'new'
+    });
+    setShowForm(true);
+  };
 
-  const saveLead = async () => {
-    if (!form.name || !form.phone) return alert('Nome e WhatsApp são obrigatórios')
-    setSaving(true)
+  const handleDelete = async (id) => {
+    if (!confirm('Deseja realmente excluir este lead?')) return;
     try {
-      const body = { ...form, agency_id: AGENCY_ID }
-      const url = editLead ? `${API}/api/leads/${editLead.id}` : `${API}/api/leads`
-      const method = editLead ? 'PUT' : 'POST'
-      const r = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) })
-      if (!r.ok) throw new Error('Erro ao salvar')
-      await fetchLeads()
-      setShowModal(false)
-    } catch (e) { alert(e.message) }
-    setSaving(false)
-  }
+      await api.delete(`/api/leads/${id}`);
+      fetchLeads();
+    } catch (err) {
+      console.error('Erro ao excluir lead:', err);
+    }
+  };
 
-  const moveStage = async (leadId, newStage) => {
-    setLeads(prev => prev.map(l => l.id === leadId ? {...l, stage: newStage} : l))
-    if (detailLead?.id === leadId) setDetailLead(prev => ({...prev, stage: newStage}))
-    try {
-      await fetch(`${API}/api/leads/${leadId}`, {
-        method: 'PUT',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ stage: newStage })
-      })
-    } catch {}
-  }
+  const filteredLeads = leads.filter(lead => {
+    const matchesSearch = (lead.name || '')?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          (lead.email || '')?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          (lead.phone || '').includes(searchTerm);
+    const matchesStatus = statusFilter === 'all' || lead.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
-  const deleteLead = async (id) => {
-    if (!confirm('Remover este lead?')) return
-    try {
-      await fetch(`${API}/api/leads/${id}`, { method: 'DELETE' })
-      setLeads(prev => prev.filter(l => l.id !== id))
-      setDetailLead(null)
-    } catch {}
-  }
-
-  // Drag & drop
-  const onDragStart = (e, lead) => {
-    dragging !== lead.id && setDragging(lead.id)
-    dragItem.current = lead.id
-    e.dataTransfer.effectAllowed = 'move'
-  }
-  const onDragEnd = () => { setDragging(null); setDragOver(null) }
-  const onDragOver = (e, stageId) => { e.preventDefault(); setDragOver(stageId) }
-  const onDrop = (e, stageId) => {
-    e.preventDefault()
-    if (dragItem.current) moveStage(dragItem.current, stageId)
-    setDragOver(null); setDragging(null)
-  }
-
-  const filtered = leads.filter(l => {
-    const q = search.toLowerCase()
-    const matchQ = !q || l.name?.toLowerCase().includes(q) || l.phone?.includes(q) || l.interest?.toLowerCase().includes(q)
-    const matchS = filterStage === 'all' || l.stage === filterStage
-    return matchQ && matchS
-  })
-
-  const byStage = (stageId) => filtered.filter(l => (l.stage || 'novo') === stageId)
-
-  const stageObj = (id) => STAGES.find(s => s.id === id) || STAGES[0]
-
-  const nextStage = (current) => {
-    const idx = STAGES.findIndex(s => s.id === current)
-    if (idx < STAGES.length - 2) return STAGES[idx + 1]
-    return null
-  }
+  const statusMap = {
+    new: { label: 'Novo', color: 'text-blue-600 bg-blue-50 border-blue-100' },
+    novo: { label: 'Novo', color: 'text-blue-600 bg-blue-50 border-blue-100' },
+    contacted: { label: 'Contatado', color: 'text-amber-600 bg-amber-50 border-amber-100' },
+    contatado: { label: 'Contatado', color: 'text-amber-600 bg-amber-50 border-amber-100' },
+    qualified: { label: 'Qualificado', color: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
+    qualificado: { label: 'Qualificado', color: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
+    converted: { label: 'Convertido', color: 'text-violet-600 bg-violet-50 border-violet-100' },
+    lost: { label: 'Perdido', color: 'text-rose-600 bg-rose-50 border-rose-100' },
+    perdido: { label: 'Perdido', color: 'text-rose-600 bg-rose-50 border-rose-100' }
+  };
 
   return (
-    <div style={{ minHeight:'100vh', background:'var(--bg)', color:'var(--text)' }}>
-
-      {/* Header */}
-      <div style={{ padding:'24px 28px 0', display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:12 }}>
+    <div className="p-8 page-transition">
+      {/* Header com Filtros e Ação */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
         <div>
-          <h1 style={{ fontSize:22, fontWeight:700, margin:0 }}>Leads</h1>
-          <p style={{ color:'var(--muted)', fontSize:13, margin:'2px 0 0' }}>
-            {leads.length} leads · {leads.filter(l=>l.stage==='fechado').length} fechados
-          </p>
+          <h1 className="text-3xl font-bold text-slate-900 font-outfit tracking-tight">Gestão de Leads</h1>
+          <p className="text-slate-500 mt-1">Acompanhe e qualifique seus potenciais clientes</p>
         </div>
-        <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-          {/* Search */}
-          <div style={{ position:'relative' }}>
-            <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--muted)', fontSize:14 }}>🔍</span>
-            <input
-              placeholder="Buscar lead..."
-              value={search}
-              onChange={e=>setSearch(e.target.value)}
-              style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:8, padding:'8px 12px 8px 32px', color:'var(--text)', fontSize:13, width:200, outline:'none' }}
-            />
+        
+        <button
+          onClick={() => { setShowForm(true); setEditingLead(null); }}
+          className="btn-gradient flex items-center justify-center gap-2 group"
+        >
+          <Plus size={18} className="group-hover:rotate-90 transition-transform" />
+          <span>Cadastrar Novo Lead</span>
+        </button>
+      </div>
+
+      {/* Toolbar */}
+      <div className="bg-white rounded-2xl border border-slate-200/60 p-4 mb-8 shadow-sm flex flex-col md:flex-row gap-4 items-center">
+        <div className="relative flex-1 group">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18} />
+          <input
+            type="text"
+            placeholder="Buscar por nome, e-mail ou telefone..."
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+        
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-600">
+            <Filter size={16} />
+            <span>Status:</span>
+            <select 
+              className="bg-transparent outline-none font-semibold text-slate-900"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="all">Todos</option>
+              <option value="new">Novo</option>
+              <option value="contacted">Contatado</option>
+              <option value="qualified">Qualificado</option>
+              <option value="lost">Perdido</option>
+            </select>
           </div>
-          {/* Filter stage */}
-          <select
-            value={filterStage}
-            onChange={e=>setFilterStage(e.target.value)}
-            style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:8, padding:'8px 12px', color:'var(--text)', fontSize:13, outline:'none' }}
-          >
-            <option value="all">Todas etapas</option>
-            {STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-          </select>
-          {/* View toggle */}
-          <div style={{ display:'flex', background:'var(--card)', border:'1px solid var(--border)', borderRadius:8, overflow:'hidden' }}>
-            {[['kanban','⊞'],['list','≡']].map(([v,icon]) => (
-              <button key={v} onClick={()=>setView(v)}
-                style={{ padding:'8px 14px', background: view===v ? 'var(--accent)' : 'transparent', color:'var(--text)', border:'none', fontSize:16, cursor:'pointer' }}>
-                {icon}
-              </button>
-            ))}
-          </div>
-          <button onClick={openNew}
-            style={{ background:'var(--accent)', color:'#fff', border:'none', borderRadius:8, padding:'8px 18px', fontWeight:600, fontSize:13, cursor:'pointer' }}>
-            + Novo Lead
-          </button>
         </div>
       </div>
 
-      {/* KANBAN VIEW */}
-      {view === 'kanban' && (
-        <div style={{ padding:'20px 28px', overflowX:'auto' }}>
-          <div style={{ display:'flex', gap:14, minWidth: STAGES.length * 260 }}>
-            {STAGES.map(stage => {
-              const stageLeads = byStage(stage.id)
-              const isOver = dragOver === stage.id
-              return (
-                <div key={stage.id}
-                  onDragOver={e=>onDragOver(e, stage.id)}
-                  onDrop={e=>onDrop(e, stage.id)}
-                  style={{
-                    flex:'0 0 250px', background: isOver ? stage.bg : 'var(--bg2)',
-                    border: `1px solid ${isOver ? stage.color : 'var(--border)'}`,
-                    borderRadius:12, padding:'12px', minHeight:500,
-                    transition:'all 0.2s'
-                  }}>
-                  {/* Column header */}
-                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                      <div style={{ width:8, height:8, borderRadius:'50%', background:stage.color }}/>
-                      <span style={{ fontSize:12, fontWeight:600, color:stage.color }}>{stage.label}</span>
-                    </div>
-                    <span style={{ background:stage.bg, color:stage.color, borderRadius:20, padding:'2px 8px', fontSize:11, fontWeight:700, border:`1px solid ${stage.color}40` }}>
-                      {stageLeads.length}
-                    </span>
-                  </div>
-
-                  {/* Cards */}
-                  <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                    {stageLeads.map(lead => (
-                      <div key={lead.id}
-                        draggable
-                        onDragStart={e=>onDragStart(e,lead)}
-                        onDragEnd={onDragEnd}
-                        onClick={()=>setDetailLead(lead)}
-                        style={{
-                          background: dragging===lead.id ? 'var(--bg3)' : 'var(--card)',
-                          border:'1px solid var(--border)', borderRadius:10, padding:'12px',
-                          cursor:'grab', opacity: dragging===lead.id ? 0.5 : 1,
-                          transition:'all 0.15s',
-                          ':hover':{ borderColor:'var(--accent)' }
-                        }}>
-                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
-                          <span style={{ fontWeight:600, fontSize:13, lineHeight:1.3 }}>{lead.name}</span>
-                          {lead.score != null && (
-                            <span style={{ background: SCORE_COLOR(lead.score)+'22', color: SCORE_COLOR(lead.score), borderRadius:6, padding:'1px 6px', fontSize:11, fontWeight:700, flexShrink:0 }}>
-                              {lead.score}
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ color:'var(--muted)', fontSize:12, marginBottom:4 }}>📱 {formatPhone(lead.phone)}</div>
-                        {lead.interest && <div style={{ color:'var(--muted)', fontSize:12, marginBottom:4 }}>🚗 {lead.interest}</div>}
-                        {lead.origin && <div style={{ color:'var(--muted2)', fontSize:11, marginBottom:8 }}>📍 {lead.origin}</div>}
-                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                          <span style={{ color:'var(--muted2)', fontSize:11 }}>{timeAgo(lead.created_at)}</span>
-                          {nextStage(lead.stage || 'novo') && (
-                            <button
-                              onClick={e=>{e.stopPropagation(); moveStage(lead.id, nextStage(lead.stage||'novo').id)}}
-                              style={{ background:'var(--bg3)', border:'1px solid var(--border2)', color:'var(--muted)', borderRadius:6, padding:'3px 8px', fontSize:11, cursor:'pointer' }}>
-                              → mover
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                    {stageLeads.length === 0 && (
-                      <div style={{ textAlign:'center', color:'var(--muted2)', fontSize:12, padding:'30px 0', borderRadius:8, border:'1px dashed var(--border)' }}>
-                        Solte aqui
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
+      {/* Main Form/Table Container */}
+      <div className="card-premium overflow-hidden">
+        {showForm ? (
+          <div className="p-8 border-b border-slate-100 bg-slate-50/50">
+            <h2 className="text-xl font-bold font-outfit text-slate-900 mb-6 flex items-center gap-2">
+              <User size={22} className="text-indigo-600" />
+              {editingLead ? 'Editar Cadastro do Lead' : 'Ficha de Novo Lead'}
+            </h2>
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Nome Completo</label>
+                <input
+                  required
+                  placeholder="Nome do cliente"
+                  className="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-4 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase ml-1">WhatsApp / Telefone</label>
+                <input
+                  placeholder="(00) 00000-0000"
+                  className="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-4 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase ml-1">E-mail</label>
+                <input
+                  type="email"
+                  placeholder="exemplo@email.com"
+                  className="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-4 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Modelo de Interesse</label>
+                <input
+                  placeholder="Ex: Corolla, Civic, Onix..."
+                  className="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-4 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  value={formData.interest}
+                  onChange={(e) => setFormData({ ...formData, interest: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Orçamento Estimado</label>
+                <input
+                  type="text"
+                  placeholder="R$ 0,00"
+                  className="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-4 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  value={formData.budget}
+                  onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Status Atual</label>
+                <select
+                  className="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-4 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 appearance-none"
+                  value={formData.status}
+                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                >
+                  <option value="new">Novo Lead</option>
+                  <option value="contacted">Contatado</option>
+                  <option value="qualified">Qualificado</option>
+                  <option value="lost">Perdido</option>
+                </select>
+              </div>
+              <div className="md:col-span-2 lg:col-span-3 space-y-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Anotações e Próximos Passos</label>
+                <textarea
+                  rows={2}
+                  placeholder="Descreva detalhes da conversa ou preferências do cliente..."
+                  className="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-4 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 resize-none"
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                />
+              </div>
+              <div className="md:col-span-2 lg:col-span-3 flex justify-end gap-3 pt-2">
+                <button 
+                  type="button" 
+                  onClick={() => setShowForm(false)} 
+                  className="px-6 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-semibold hover:bg-slate-100 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit" 
+                  className="px-8 py-2.5 rounded-xl bg-indigo-600 text-white font-bold shadow-md hover:bg-indigo-700 transition-all"
+                >
+                  {editingLead ? 'Salvar Alterações' : 'Cadastrar Lead'}
+                </button>
+              </div>
+            </form>
           </div>
-        </div>
-      )}
+        ) : null}
 
-      {/* LIST VIEW */}
-      {view === 'list' && (
-        <div style={{ padding:'20px 28px' }}>
-          <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, overflow:'hidden' }}>
-            <table style={{ width:'100%', borderCollapse:'collapse' }}>
+        <div className="overflow-x-auto">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-4">
+              <div className="w-10 h-10 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+              <p className="text-slate-400 font-medium tracking-wide">Atualizando listagem...</p>
+            </div>
+          ) : filteredLeads.length === 0 ? (
+            <div className="text-center py-20 px-6">
+              <User size={48} className="text-slate-100 mx-auto mb-4" />
+              <h3 className="text-lg font-bold text-slate-900">Nenhum lead encontrado</h3>
+              <p className="text-slate-500 mt-1 max-w-xs mx-auto">Tente ajustar seus filtros ou cadastre um novo lead.</p>
+            </div>
+          ) : (
+            <table className="w-full text-left border-collapse">
               <thead>
-                <tr style={{ borderBottom:'1px solid var(--border)' }}>
-                  {['Nome','WhatsApp','Interesse','Origem','Etapa','Score','Ação'].map(h => (
-                    <th key={h} style={{ padding:'12px 16px', textAlign:'left', fontSize:12, color:'var(--muted)', fontWeight:600 }}>{h}</th>
-                  ))}
+                <tr className="bg-slate-50/80 border-b border-slate-100">
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest leading-none">Cliente / Contato</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest leading-none">Interesse Principal</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest leading-none text-center">Status</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest leading-none text-right">Cadastrado em</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest leading-none text-center">Ações</th>
                 </tr>
               </thead>
-              <tbody>
-                {filtered.map(lead => {
-                  const st = stageObj(lead.stage || 'novo')
+              <tbody className="divide-y divide-slate-50">
+                {filteredLeads.map((lead) => {
+                  const status = statusMap[lead.status?.toLowerCase()] || statusMap.new;
                   return (
-                    <tr key={lead.id} onClick={()=>setDetailLead(lead)}
-                      style={{ borderBottom:'1px solid var(--border)', cursor:'pointer', transition:'background 0.15s' }}
-                      onMouseEnter={e=>e.currentTarget.style.background='var(--bg2)'}
-                      onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                      <td style={{ padding:'12px 16px', fontWeight:600, fontSize:13 }}>{lead.name}</td>
-                      <td style={{ padding:'12px 16px', color:'var(--muted)', fontSize:13 }}>{formatPhone(lead.phone)}</td>
-                      <td style={{ padding:'12px 16px', color:'var(--muted)', fontSize:13 }}>{lead.interest || '—'}</td>
-                      <td style={{ padding:'12px 16px', color:'var(--muted)', fontSize:13 }}>{lead.origin || '—'}</td>
-                      <td style={{ padding:'12px 16px' }}>
-                        <span style={{ background:st.bg, color:st.color, borderRadius:20, padding:'3px 10px', fontSize:11, fontWeight:600 }}>{st.label}</span>
+                    <tr key={lead.id} className="hover:bg-slate-50/50 transition-colors group">
+                      <td className="px-6 py-4">
+                        <div className="font-bold text-slate-900 font-outfit text-base">{lead.name || 'S/ Nome'}</div>
+                        <div className="flex items-center gap-3 mt-1.5">
+                          <span className="flex items-center gap-1 text-xs text-slate-400 font-semibold"><Phone size={12}/> {lead.phone || '—'}</span>
+                          <span className="flex items-center gap-1 text-xs text-slate-400 font-semibold"><Mail size={12}/> {lead.email || '—'}</span>
+                        </div>
                       </td>
-                      <td style={{ padding:'12px 16px' }}>
-                        {lead.score != null && (
-                          <span style={{ color: SCORE_COLOR(lead.score), fontWeight:700 }}>{lead.score}</span>
-                        )}
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <Tag size={14} className="text-indigo-400" />
+                          <span className="text-sm font-semibold text-slate-700">{lead.interest || 'Não especif.'}</span>
+                        </div>
+                        {lead.budget && <div className="text-[11px] text-slate-400 font-bold mt-1 ml-5">Budget: {lead.budget}</div>}
                       </td>
-                      <td style={{ padding:'12px 16px' }}>
-                        <div style={{ display:'flex', gap:6 }}>
-                          <button onClick={e=>{e.stopPropagation();openEdit(lead)}}
-                            style={{ background:'var(--bg3)', border:'1px solid var(--border2)', color:'var(--muted)', borderRadius:6, padding:'4px 10px', fontSize:12, cursor:'pointer' }}>
-                            Editar
-                          </button>
-                          <a href={`https://wa.me/55${lead.phone?.replace(/\D/g,'')}`} target="_blank"
-                            onClick={e=>e.stopPropagation()}
-                            style={{ background:'#075e5422', border:'1px solid #075e5460', color:'#25d366', borderRadius:6, padding:'4px 10px', fontSize:12, cursor:'pointer', textDecoration:'none' }}>
-                            WhatsApp
-                          </a>
+                      <td className="px-6 py-4">
+                        <div className="flex justify-center">
+                          <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider border ${status.color}`}>
+                            {status.label}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex flex-col items-end">
+                           <span className="text-xs font-bold text-slate-600 flex items-center gap-1"><Calendar size={12} className="text-slate-400"/> {lead.created_at ? new Date(lead.created_at).toLocaleDateString('pt-BR') : '—'}</span>
+                           <span className="text-[10px] text-slate-400 font-semibold tracking-tighter mt-1 italic">Score: {lead.score || 0} pts</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-center gap-1">
+                          <button onClick={() => handleEdit(lead)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-lg transition-all" title="Editar"><Edit2 size={16}/></button>
+                          <button onClick={() => handleDelete(lead.id)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-white rounded-lg transition-all" title="Excluir"><Trash2 size={16}/></button>
                         </div>
                       </td>
                     </tr>
-                  )
+                  );
                 })}
-                {filtered.length === 0 && (
-                  <tr><td colSpan={7} style={{ padding:'40px', textAlign:'center', color:'var(--muted)' }}>Nenhum lead encontrado</td></tr>
-                )}
               </tbody>
             </table>
-          </div>
+          )}
         </div>
-      )}
-
-      {/* DETAIL MODAL */}
-      {detailLead && (
-        <div onClick={()=>setDetailLead(null)}
-          style={{ position:'fixed', inset:0, background:'#00000088', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
-          <div onClick={e=>e.stopPropagation()}
-            style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:16, width:'100%', maxWidth:560, maxHeight:'90vh', overflowY:'auto' }}>
-
-            {/* Header */}
-            <div style={{ padding:'20px 24px', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <div>
-                <h2 style={{ margin:0, fontSize:18, fontWeight:700 }}>{detailLead.name}</h2>
-                <p style={{ margin:'4px 0 0', color:'var(--muted)', fontSize:13 }}>{detailLead.origin} · {timeAgo(detailLead.created_at)}</p>
-              </div>
-              <button onClick={()=>setDetailLead(null)}
-                style={{ background:'none', border:'none', color:'var(--muted)', fontSize:20, cursor:'pointer' }}>✕</button>
-            </div>
-
-            <div style={{ padding:'20px 24px' }}>
-              {/* Contato */}
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
-                <a href={`https://wa.me/55${detailLead.phone?.replace(/\D/g,'')}`} target="_blank"
-                  style={{ display:'flex', alignItems:'center', gap:10, background:'#075e5415', border:'1px solid #075e5440', borderRadius:10, padding:'12px 16px', textDecoration:'none' }}>
-                  <span style={{ fontSize:22 }}>📱</span>
-                  <div>
-                    <div style={{ color:'#25d366', fontWeight:600, fontSize:13 }}>WhatsApp</div>
-                    <div style={{ color:'var(--muted)', fontSize:12 }}>{formatPhone(detailLead.phone)}</div>
-                  </div>
-                </a>
-                {detailLead.email && (
-                  <div style={{ display:'flex', alignItems:'center', gap:10, background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:10, padding:'12px 16px' }}>
-                    <span style={{ fontSize:22 }}>✉️</span>
-                    <div>
-                      <div style={{ color:'var(--muted)', fontSize:12 }}>E-mail</div>
-                      <div style={{ fontSize:13 }}>{detailLead.email}</div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Veículo de interesse */}
-              {detailLead.interest && (
-                <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:10, padding:'12px 16px', marginBottom:16, display:'flex', gap:10, alignItems:'center' }}>
-                  <span style={{ fontSize:20 }}>🚗</span>
-                  <div>
-                    <div style={{ color:'var(--muted)', fontSize:12 }}>Interesse</div>
-                    <div style={{ fontWeight:600 }}>{detailLead.interest}</div>
-                  </div>
-                </div>
-              )}
-
-              {/* Score */}
-              {detailLead.score != null && (
-                <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:10, padding:'12px 16px', marginBottom:16, display:'flex', alignItems:'center', gap:12 }}>
-                  <span style={{ fontSize:20 }}>⭐</span>
-                  <div style={{ flex:1 }}>
-                    <div style={{ color:'var(--muted)', fontSize:12, marginBottom:4 }}>Score do Lead</div>
-                    <div style={{ background:'var(--border)', borderRadius:4, height:6 }}>
-                      <div style={{ width:`${detailLead.score}%`, height:'100%', borderRadius:4, background: SCORE_COLOR(detailLead.score) }}/>
-                    </div>
-                  </div>
-                  <span style={{ fontWeight:700, color: SCORE_COLOR(detailLead.score), fontSize:18 }}>{detailLead.score}</span>
-                </div>
-              )}
-
-              {/* Etapa atual + mover */}
-              <div style={{ marginBottom:20 }}>
-                <div style={{ color:'var(--muted)', fontSize:12, marginBottom:8 }}>Etapa atual</div>
-                <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                  {STAGES.map(s => (
-                    <button key={s.id}
-                      onClick={()=>moveStage(detailLead.id, s.id)}
-                      style={{
-                        background: (detailLead.stage||'novo')===s.id ? s.bg : 'var(--bg2)',
-                        border: `1px solid ${(detailLead.stage||'novo')===s.id ? s.color : 'var(--border)'}`,
-                        color: (detailLead.stage||'novo')===s.id ? s.color : 'var(--muted)',
-                        borderRadius:8, padding:'6px 12px', fontSize:12, cursor:'pointer', fontWeight: (detailLead.stage||'novo')===s.id ? 700 : 400
-                      }}>
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Anotações / Histórico */}
-              <div style={{ marginBottom:20 }}>
-                <div style={{ color:'var(--muted)', fontSize:12, marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
-                  📋 Anotações & Histórico WhatsApp
-                  <span style={{ background:'#a100c220', color:'var(--accent2)', borderRadius:4, padding:'1px 6px', fontSize:10 }}>Em breve: sync automático</span>
-                </div>
-                <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:10, padding:'12px 16px', minHeight:80, fontSize:13, color:'var(--muted)', whiteSpace:'pre-wrap', lineHeight:1.6 }}>
-                  {detailLead.notes || 'Nenhuma anotação ainda. Clique em Editar para adicionar.'}
-                </div>
-              </div>
-
-              {/* Ações */}
-              <div style={{ display:'flex', gap:8 }}>
-                <button onClick={()=>openEdit(detailLead)}
-                  style={{ flex:1, background:'var(--accent)', color:'#fff', border:'none', borderRadius:8, padding:'10px', fontWeight:600, cursor:'pointer' }}>
-                  ✏️ Editar Lead
-                </button>
-                <a href={`https://wa.me/55${detailLead.phone?.replace(/\D/g,'')}`} target="_blank"
-                  style={{ flex:1, background:'#075e5422', border:'1px solid #25d36660', color:'#25d366', borderRadius:8, padding:'10px', fontWeight:600, cursor:'pointer', textDecoration:'none', textAlign:'center', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
-                  📱 Abrir WhatsApp
-                </a>
-                <button onClick={()=>deleteLead(detailLead.id)}
-                  style={{ background:'#ef444415', border:'1px solid #ef444440', color:'#ef4444', borderRadius:8, padding:'10px 14px', cursor:'pointer' }}>
-                  🗑
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* FORM MODAL */}
-      {showModal && (
-        <div onClick={()=>setShowModal(false)}
-          style={{ position:'fixed', inset:0, background:'#00000088', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
-          <div onClick={e=>e.stopPropagation()}
-            style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:16, width:'100%', maxWidth:500, maxHeight:'90vh', overflowY:'auto' }}>
-
-            <div style={{ padding:'20px 24px', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <h2 style={{ margin:0, fontSize:18, fontWeight:700 }}>{editLead ? 'Editar Lead' : 'Novo Lead'}</h2>
-              <button onClick={()=>setShowModal(false)} style={{ background:'none', border:'none', color:'var(--muted)', fontSize:20, cursor:'pointer' }}>✕</button>
-            </div>
-
-            <div style={{ padding:'20px 24px', display:'flex', flexDirection:'column', gap:14 }}>
-              {[
-                ['Nome completo *', 'name', 'text', 'Ex: João Silva'],
-                ['WhatsApp *', 'phone', 'tel', '(11) 99999-9999'],
-                ['E-mail', 'email', 'email', 'email@exemplo.com'],
-                ['Veículo de interesse', 'interest', 'text', 'Ex: Honda Civic 2020'],
-              ].map(([label, field, type, placeholder]) => (
-                <div key={field}>
-                  <label style={{ display:'block', color:'var(--muted)', fontSize:12, marginBottom:6 }}>{label}</label>
-                  <input type={type} placeholder={placeholder} value={form[field]}
-                    onChange={e=>setForm(p=>({...p,[field]:e.target.value}))}
-                    style={{ width:'100%', background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, padding:'10px 12px', color:'var(--text)', fontSize:13, outline:'none', boxSizing:'border-box' }}
-                  />
-                </div>
-              ))}
-
-              {/* Veículo do estoque */}
-              <div>
-                <label style={{ display:'block', color:'var(--muted)', fontSize:12, marginBottom:6 }}>Veículo do estoque (opcional)</label>
-                <select value={form.vehicle_id} onChange={e=>setForm(p=>({...p,vehicle_id:e.target.value}))}
-                  style={{ width:'100%', background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, padding:'10px 12px', color:'var(--text)', fontSize:13, outline:'none' }}>
-                  <option value="">Selecionar veículo...</option>
-                  {vehicles.map(v => <option key={v.id} value={v.id}>{v.brand} {v.model} {v.year} — R$ {v.price?.toLocaleString('pt-BR')}</option>)}
-                </select>
-              </div>
-
-              {/* Origem */}
-              <div>
-                <label style={{ display:'block', color:'var(--muted)', fontSize:12, marginBottom:6 }}>Origem do lead</label>
-                <select value={form.origin} onChange={e=>setForm(p=>({...p,origin:e.target.value}))}
-                  style={{ width:'100%', background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, padding:'10px 12px', color:'var(--text)', fontSize:13, outline:'none' }}>
-                  {ORIGINS.map(o => <option key={o} value={o}>{o}</option>)}
-                </select>
-              </div>
-
-              {/* Etapa */}
-              <div>
-                <label style={{ display:'block', color:'var(--muted)', fontSize:12, marginBottom:6 }}>Etapa inicial</label>
-                <select value={form.stage} onChange={e=>setForm(p=>({...p,stage:e.target.value}))}
-                  style={{ width:'100%', background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, padding:'10px 12px', color:'var(--text)', fontSize:13, outline:'none' }}>
-                  {STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-                </select>
-              </div>
-
-              {/* Anotações */}
-              <div>
-                <label style={{ display:'block', color:'var(--muted)', fontSize:12, marginBottom:6 }}>Anotações / Observações</label>
-                <textarea rows={4} placeholder="Histórico de contato, observações do vendedor..."
-                  value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))}
-                  style={{ width:'100%', background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, padding:'10px 12px', color:'var(--text)', fontSize:13, outline:'none', resize:'vertical', boxSizing:'border-box' }}
-                />
-              </div>
-
-              <div style={{ display:'flex', gap:8, paddingTop:4 }}>
-                <button onClick={()=>setShowModal(false)}
-                  style={{ flex:1, background:'var(--bg2)', border:'1px solid var(--border)', color:'var(--muted)', borderRadius:8, padding:'10px', cursor:'pointer' }}>
-                  Cancelar
-                </button>
-                <button onClick={saveLead} disabled={saving}
-                  style={{ flex:2, background:'var(--accent)', color:'#fff', border:'none', borderRadius:8, padding:'10px', fontWeight:600, cursor:'pointer', opacity: saving ? 0.7 : 1 }}>
-                  {saving ? 'Salvando...' : editLead ? 'Salvar Alterações' : 'Cadastrar Lead'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {loading && (
-        <div style={{ position:'fixed', inset:0, background:'#00000066', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center' }}>
-          <div style={{ background:'var(--card)', borderRadius:12, padding:'24px 32px', color:'var(--text)' }}>Carregando leads...</div>
-        </div>
-      )}
+      </div>
     </div>
-  )
+  );
 }

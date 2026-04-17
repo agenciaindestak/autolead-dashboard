@@ -1,409 +1,521 @@
-'use client'
-import { useState, useEffect, useRef } from 'react'
-import Sidebar from '@/components/Sidebar'
-import { Search, Plus, X, ChevronLeft, ChevronRight, Upload, ImageIcon, ExternalLink, Play } from 'lucide-react'
+'use client';
 
-const API = 'https://autolead-backend-production.up.railway.app'
-const AGENCY_ID = '6ee07688-9d34-4d18-861c-62585a440cc0'
+import { useState, useEffect, useCallback, useRef } from 'react';
+import api from '@/lib/api';
+import { 
+  Car, Plus, Search, Filter, Monitor, Fuel, 
+  Settings, Palette, Calendar, Trash2, Edit3, 
+  Zap, Video, Image as ImageIcon, ChevronLeft, 
+  ChevronRight, X, Sparkles, CheckCircle, Play, Maximize2
+} from 'lucide-react';
 
-const S = {
-  input: { width:'100%', background:'#1a1d27', border:'1px solid #374151', borderRadius:'8px', padding:'8px 12px', color:'#f9fafb', fontSize:'13px', outline:'none' },
-  label: { color:'#9ca3af', fontSize:'12px', marginBottom:'5px', display:'block' },
-}
+const AGENCY_ID = process.env.NEXT_PUBLIC_AGENCY_ID || '6ee07688-9d34-4d18-861c-62585a440cc0';
 
-export default function Vehicles() {
-  const [vehicles, setVehicles]   = useState([])
-  const [search, setSearch]       = useState('')
-  const [loading, setLoading]     = useState(true)
-  const [showForm, setShowForm]   = useState(false)
-  const [editingId, setEditingId] = useState(null)
-  const [saving, setSaving]       = useState(false)
-  const [uploadProgress, setUploadProgress] = useState('')
+export default function VehiclesPage() {
+  const [vehicles, setVehicles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editingVehicle, setEditingVehicle] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  
+  // Gallery state
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [activeGalleryImages, setActiveGalleryImages] = useState([]);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
-  // Modal detalhes
-  const [detail, setDetail]       = useState(null)
-  const [detailPhotoIdx, setDetailPhotoIdx] = useState(0)
+  // Video modal state
+  const [videoModalOpen, setVideoModalOpen] = useState(false);
+  const [activeVideoUrl, setActiveVideoUrl] = useState('');
 
-  // Galeria fullscreen
-  const [gallery, setGallery]     = useState(null)
+  const [filters, setFilters] = useState({
+    search: '', status: '', fuel: '', transmission: '', minPrice: '', maxPrice: ''
+  });
 
-  const [form, setForm] = useState({
-    brand:'', model:'', version:'', year_model:'', year_fab:'',
-    color:'', price:'', km:'', fuel:'Flex', transmission:'Automático',
-    description:'', status:'disponivel', video_url:''
-  })
-  const [photos, setPhotos]       = useState([])
-  const [generatingDesc, setGeneratingDesc] = useState(false)
-  const fileRef = useRef(null)
+  const [formData, setFormData] = useState({
+    brand: '', model: '', year: '', price: '', mileage: '', 
+    color: '', fuel: '', transmission: '', status: 'available', 
+    description: '', video_url: '', photos: []
+  });
 
-  useEffect(() => { load() }, [])
+  const fileInputRef = useRef(null);
 
-  function load() {
-    setLoading(true)
-    fetch(`${API}/api/vehicles?agency_id=${AGENCY_ID}`)
-      .then(r => r.json())
-      .then(d => { setVehicles(Array.isArray(d) ? d : []); setLoading(false) })
-      .catch(() => setLoading(false))
-  }
-
-  function upd(k, v) { setForm(f => ({...f, [k]:v})) }
-
-  function openNew() {
-    setEditingId(null)
-    setForm({ brand:'', model:'', version:'', year_model:'', year_fab:'', color:'', price:'', km:'', fuel:'Flex', transmission:'Automático', description:'', status:'disponivel', video_url:'' })
-    setPhotos([])
-    setShowForm(true)
-  }
-
-  function openEdit(v, e) {
-    e?.stopPropagation()
-    setEditingId(v.id)
-    setForm({
-      brand:v.brand||'', model:v.model||'', version:v.version||'',
-      year_model:v.year_model||'', year_fab:v.year_fab||'',
-      color:v.color||'', price:v.price||'', km:v.km||'',
-      fuel:v.fuel||'Flex', transmission:v.transmission||'Automático',
-      description:v.description||'', status:v.status||'disponivel',
-      video_url:v.video_url||''
-    })
-    setPhotos((v.photos||[]).map(url => ({ file:null, preview:url, url })))
-    setShowForm(true)
-    setDetail(null)
-  }
-
-  function handleFileChange(e) {
-    const files = Array.from(e.target.files)
-    setPhotos(p => [...p, ...files.map(f => ({ file:f, preview:URL.createObjectURL(f), url:null }))])
-    e.target.value = ''
-  }
-
-  function removePhoto(i) { setPhotos(p => p.filter((_, idx) => idx !== i)) }
-
-  async function generateDesc() {
-    if(!form.brand || !form.model) return alert('Preencha Marca e Modelo primeiro')
-    setGeneratingDesc(true)
+  const fetchVehicles = useCallback(async () => {
+    setLoading(true);
     try {
-      const r = await fetch(`${API}/api/agent/description`, {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ brand:form.brand, model:form.model, version:form.version, year_model:form.year_model, color:form.color, km:form.km, fuel:form.fuel, transmission:form.transmission, price:form.price })
-      })
-      const d = await r.json()
-      upd('description', d.description||'')
-    } catch { alert('Erro ao gerar descrição') }
-    setGeneratingDesc(false)
-  }
+      const params = new URLSearchParams({ agency_id: AGENCY_ID, ...filters });
+      const res = await api.get(`/api/vehicles?${params.toString()}`);
+      setVehicles(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error('Erro ao buscar veículos:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [filters]);
 
-  async function save() {
-    if(!form.brand || !form.model) return alert('Preencha Marca e Modelo')
-    setSaving(true)
+  useEffect(() => {
+    fetchVehicles();
+  }, [fetchVehicles]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     try {
-      let vehicleId = editingId
-      if(editingId) {
-        await fetch(`${API}/api/vehicles/${editingId}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ...form, agency_id:AGENCY_ID }) })
+      const payload = { ...formData, agency_id: AGENCY_ID };
+      if (editingVehicle) {
+        await api.put(`/api/vehicles/${editingVehicle.id}`, payload);
       } else {
-        const r = await fetch(`${API}/api/vehicles`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ...form, agency_id:AGENCY_ID }) })
-        const d = await r.json()
-        vehicleId = d.id || d.data?.id
+        await api.post(`/api/vehicles`, payload);
       }
-      const newPhotos = photos.filter(p => p.file && !p.url)
-      if(newPhotos.length > 0 && vehicleId) {
-        for(let i = 0; i < newPhotos.length; i++) {
-          setUploadProgress(`Enviando foto ${i+1} de ${newPhotos.length}...`)
-          const fd = new FormData()
-          fd.append('photo', newPhotos[i].file)
-          await fetch(`${API}/api/upload/photo/${vehicleId}`, { method:'POST', body:fd })
-        }
-        setUploadProgress('')
+      fetchVehicles();
+      setShowForm(false);
+      setEditingVehicle(null);
+      setFormData({ 
+        brand: '', model: '', year: '', price: '', mileage: '', 
+        color: '', fuel: '', transmission: '', status: 'available', 
+        description: '', video_url: '', photos: [] 
+      });
+    } catch (err) {
+      alert('Erro ao salvar veículo: ' + err.message);
+    }
+  };
+
+  const handleEdit = (vehicle) => {
+    setEditingVehicle(vehicle);
+    setFormData({
+      brand: vehicle.brand || '',
+      model: vehicle.model || '',
+      year: vehicle.year || '',
+      price: vehicle.price || '',
+      mileage: vehicle.mileage || '',
+      color: vehicle.color || '',
+      fuel: vehicle.fuel || '',
+      transmission: vehicle.transmission || '',
+      status: vehicle.status || 'available',
+      description: vehicle.description || '',
+      video_url: vehicle.video_url || '',
+      photos: Array.isArray(vehicle.photos) ? vehicle.photos : []
+    });
+    setShowForm(true);
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm('Deseja excluir este veículo permanentemente?')) return;
+    try {
+      await api.delete(`/api/vehicles/${id}`);
+      fetchVehicles();
+    } catch (err) {
+      console.error('Erro ao excluir veículo:', err);
+    }
+  };
+
+  const handleFileUpload = async (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    if (!editingVehicle) {
+      alert('Por favor, salve os dados básicos do veículo primeiro para poder subir fotos.');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const fileFormData = new FormData();
+        fileFormData.append('photo', files[i]);
+        await api.post(`/api/upload/photo/${editingVehicle.id}`, fileFormData);
       }
-      setShowForm(false)
-      load()
-    } catch(e) { alert('Erro ao salvar: ' + e.message) }
-    setSaving(false)
-  }
+      // Refresh form/list
+      if (editingVehicle) {
+        const res = await api.get(`/api/vehicles/${editingVehicle.id}`);
+        setFormData(prev => ({ ...prev, photos: res.data.photos || [] }));
+      }
+      fetchVehicles();
+    } catch (err) {
+      alert('Erro no upload: ' + err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
 
-  async function remove(id, e) {
-    e?.stopPropagation()
-    if(!confirm('Remover este veículo?')) return
-    await fetch(`${API}/api/vehicles/${id}`, { method:'DELETE' })
-    setDetail(null)
-    load()
-  }
+  const generateDescription = async () => {
+    if (!formData.brand || !formData.model) return;
+    setAiLoading(true);
+    try {
+      const res = await api.post('/api/agent/chat', {
+        agencyId: AGENCY_ID,
+        message: `Gere uma descrição curta e vendedora para um ${formData.brand} ${formData.model} ${formData.year}, cor ${formData.color}, ${formData.fuel}, câmbio ${formData.transmission}.`,
+      });
+      setFormData(prev => ({ ...prev, description: res.response }));
+    } catch (err) {
+      console.error('Erro IA:', err);
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
-  // Abre modal de detalhes
-  function openDetail(v) {
-    setDetail(v)
-    setDetailPhotoIdx(0)
-  }
+  const openGallery = (photos, startIndex = 0) => {
+    if (!photos || photos.length === 0) return;
+    setActiveGalleryImages(photos);
+    setCurrentImageIndex(startIndex);
+    setGalleryOpen(true);
+  };
 
-  // Galeria fullscreen a partir do modal
-  function openGallery(photos, idx=0) {
-    setGallery({ photos, index:idx })
-  }
+  const openVideo = (url) => {
+    if (!url) return;
+    setActiveVideoUrl(url);
+    setVideoModalOpen(true);
+  };
 
-  const filtered = vehicles.filter(v =>
-    `${v.brand} ${v.model} ${v.version||''}`.toLowerCase().includes(search.toLowerCase())
-  )
-
-  const statusMap = {
-    disponivel: { label:'Disponível', bg:'rgba(109,194,0,0.1)', c:'#6dc200' },
-    reservado:  { label:'Reservado',  bg:'rgba(245,158,11,0.1)', c:'#f59e0b' },
-    vendido:    { label:'Vendido',    bg:'rgba(239,68,68,0.1)',  c:'#ef4444' },
-    available:  { label:'Disponível', bg:'rgba(109,194,0,0.1)', c:'#6dc200' },
-  }
+  const getEmbedUrl = (url) => {
+    if (!url) return '';
+    if (url.includes('youtube.com/watch?v=')) {
+      return url.replace('watch?v=', 'embed/');
+    }
+    if (url.includes('youtu.be/')) {
+      return url.replace('youtu.be/', 'www.youtube.com/embed/');
+    }
+    return url;
+  };
 
   return (
-    <div style={{ display:'flex', minHeight:'100vh', background:'var(--bg)' }}>
-      <Sidebar />
-      <main style={{ flex:1, padding:'28px', overflowY:'auto' }}>
-
-        {/* Header */}
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'24px' }}>
-          <div>
-            <h1 style={{ fontSize:'24px', fontWeight:'800', color:'var(--text)' }}>Veículos</h1>
-            <p style={{ color:'var(--muted)', marginTop:'4px' }}>{vehicles.length} veículos no estoque</p>
+    <div className="p-8 page-transition relative min-h-screen">
+      {/* Lightbox Gallery */}
+      {galleryOpen && (
+        <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4 md:p-10 animate-in fade-in duration-300">
+          <button onClick={() => setGalleryOpen(false)} className="absolute top-6 right-6 text-white/70 hover:text-white z-[110] bg-white/10 p-2 rounded-full backdrop-blur-md transition-all"><X size={32}/></button>
+          
+          <button 
+            onClick={() => setCurrentImageIndex(prev => (prev > 0 ? prev - 1 : activeGalleryImages.length - 1))}
+            className="absolute left-6 text-white/50 hover:text-white bg-white/5 p-4 rounded-full backdrop-blur-sm transition-all"
+          >
+            <ChevronLeft size={40}/>
+          </button>
+          
+          <div className="relative max-w-5xl w-full h-full flex items-center justify-center">
+            <img 
+              src={activeGalleryImages[currentImageIndex]} 
+              className="max-h-full max-w-full object-contain shadow-2xl rounded-lg animate-in zoom-in-95 duration-300" 
+              alt="Gallery View" 
+            />
+            <div className="absolute bottom-0 bg-black/40 text-white px-4 py-2 rounded-full text-sm font-medium mb-4 backdrop-blur-md">
+              {currentImageIndex + 1} / {activeGalleryImages.length}
+            </div>
           </div>
-          <button onClick={openNew} style={{ display:'flex', alignItems:'center', gap:'6px', background:'var(--accent)', color:'#fff', border:'none', padding:'9px 18px', borderRadius:'9px', fontSize:'13px', fontWeight:'600', cursor:'pointer' }}>
-            <Plus size={14} /> Novo Veículo
+
+          <button 
+            onClick={() => setCurrentImageIndex(prev => (prev < activeGalleryImages.length - 1 ? prev + 1 : 0))}
+            className="absolute right-6 text-white/50 hover:text-white bg-white/5 p-4 rounded-full backdrop-blur-sm transition-all"
+          >
+            <ChevronRight size={40}/>
           </button>
         </div>
+      )}
 
-        {/* FORMULÁRIO */}
-        {showForm && (
-          <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:'14px', padding:'24px', marginBottom:'20px' }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'20px' }}>
-              <h2 style={{ color:'var(--text)', fontWeight:'700', fontSize:'16px' }}>{editingId ? 'Editar Veículo' : 'Cadastrar Novo Veículo'}</h2>
-              <button onClick={() => setShowForm(false)} style={{ background:'none', border:'none', color:'var(--muted2)', cursor:'pointer' }}><X size={20} /></button>
-            </div>
-
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'14px', marginBottom:'14px' }}>
-              {[{k:'brand',l:'Marca *'},{k:'model',l:'Modelo *'},{k:'version',l:'Versão'},{k:'year_model',l:'Ano Modelo'},{k:'year_fab',l:'Ano Fab.'},{k:'color',l:'Cor'},{k:'price',l:'Preço (R$)'},{k:'km',l:'Quilometragem'}].map(f => (
-                <div key={f.k}><label style={S.label}>{f.l}</label><input style={S.input} value={form[f.k]} onChange={e => upd(f.k, e.target.value)} /></div>
-              ))}
-              <div><label style={S.label}>Combustível</label><select style={S.input} value={form.fuel} onChange={e => upd('fuel', e.target.value)}>{['Flex','Gasolina','Etanol','Diesel','Elétrico','Híbrido'].map(o=><option key={o}>{o}</option>)}</select></div>
-              <div><label style={S.label}>Câmbio</label><select style={S.input} value={form.transmission} onChange={e => upd('transmission', e.target.value)}>{['Automático','Manual','CVT','Automatizado'].map(o=><option key={o}>{o}</option>)}</select></div>
-              <div><label style={S.label}>Status</label><select style={S.input} value={form.status} onChange={e => upd('status', e.target.value)}>{['disponivel','reservado','vendido'].map(o=><option key={o}>{o}</option>)}</select></div>
-            </div>
-
-            {/* Vídeo externo */}
-            <div style={{ marginBottom:'14px' }}>
-              <label style={S.label}>🎬 Link do Vídeo (YouTube / Google Drive)</label>
-              <input style={S.input} value={form.video_url} onChange={e => upd('video_url', e.target.value)} placeholder="https://youtube.com/watch?v=... ou https://drive.google.com/..." />
-              <div style={{ color:'var(--muted)', fontSize:'11px', marginTop:'4px' }}>O agente IA enviará este link automaticamente quando o lead perguntar sobre o veículo.</div>
-            </div>
-
-            {/* Descrição */}
-            <div style={{ marginBottom:'16px' }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'5px' }}>
-                <label style={S.label}>Descrição</label>
-                <button onClick={generateDesc} disabled={generatingDesc} style={{ background:'rgba(161,0,194,0.15)', color:'var(--accent2)', border:'1px solid rgba(161,0,194,0.3)', borderRadius:'6px', padding:'4px 10px', fontSize:'11px', cursor:'pointer' }}>
-                  {generatingDesc ? '⏳ Gerando...' : '🤖 Gerar com IA'}
-                </button>
-              </div>
-              <textarea style={{...S.input, minHeight:'80px', resize:'vertical'}} value={form.description} onChange={e => upd('description', e.target.value)} placeholder="Descreva o veículo ou use a IA para gerar automaticamente..." />
-            </div>
-
-            {/* Upload fotos */}
-            <div style={{ marginBottom:'18px' }}>
-              <label style={S.label}>📸 Fotos do Veículo</label>
-              <div onClick={() => fileRef.current?.click()} style={{ border:'2px dashed var(--border2)', borderRadius:'10px', padding:'16px', textAlign:'center', cursor:'pointer', marginBottom:'10px' }} onMouseEnter={e=>e.currentTarget.style.borderColor='var(--accent)'} onMouseLeave={e=>e.currentTarget.style.borderColor='var(--border2)'}>
-                <Upload size={20} color="var(--muted2)" style={{ marginBottom:'4px' }} />
-                <div style={{ color:'var(--muted2)', fontSize:'12px' }}>Clique para adicionar fotos (múltiplas)</div>
-                <input ref={fileRef} type="file" multiple accept="image/*" style={{ display:'none' }} onChange={handleFileChange} />
-              </div>
-              {photos.length > 0 && (
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:'7px' }}>
-                  {photos.map((p,i) => (
-                    <div key={i} style={{ position:'relative', borderRadius:'7px', overflow:'hidden', aspectRatio:'4/3', border:'1px solid var(--border)' }}>
-                      <img src={p.preview} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-                      {i===0 && <div style={{ position:'absolute', bottom:'3px', left:'3px', background:'rgba(161,0,194,0.9)', borderRadius:'3px', padding:'1px 5px', fontSize:'9px', color:'#fff', fontWeight:'700' }}>CAPA</div>}
-                      <button onClick={()=>removePhoto(i)} style={{ position:'absolute', top:'3px', right:'3px', background:'rgba(0,0,0,0.75)', border:'none', borderRadius:'3px', width:'18px', height:'18px', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}><X size={10} color="#fff" /></button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {uploadProgress && <div style={{ color:'var(--accent2)', fontSize:'12px', marginTop:'7px' }}>⏳ {uploadProgress}</div>}
-            </div>
-
-            <div style={{ display:'flex', gap:'10px' }}>
-              <button onClick={save} disabled={saving} style={{ background:'var(--accent)', color:'#fff', border:'none', padding:'10px 22px', borderRadius:'9px', fontSize:'13px', fontWeight:'600', cursor:'pointer', opacity:saving?.7:1 }}>
-                {saving ? 'Salvando...' : editingId ? '💾 Salvar Alterações' : '✅ Cadastrar Veículo'}
-              </button>
-              <button onClick={()=>setShowForm(false)} style={{ background:'var(--bg3)', color:'var(--text)', border:'1px solid var(--border2)', padding:'10px 16px', borderRadius:'9px', fontSize:'13px', cursor:'pointer' }}>Cancelar</button>
-            </div>
-          </div>
-        )}
-
-        {/* LISTA */}
-        <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:'12px', overflow:'hidden' }}>
-          <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--border)', position:'relative' }}>
-            <Search size={14} style={{ position:'absolute', left:'28px', top:'50%', transform:'translateY(-50%)', color:'var(--muted2)' }} />
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar veículo..." style={{...S.input, paddingLeft:'34px'}} />
-          </div>
-
-          {loading ? (
-            <div style={{ padding:'40px', textAlign:'center', color:'var(--muted)' }}>Carregando...</div>
-          ) : filtered.length === 0 ? (
-            <div style={{ padding:'40px', textAlign:'center', color:'var(--muted)' }}>Nenhum veículo encontrado.</div>
-          ) : filtered.map(v => {
-            const cover = v.photos?.[0] || null
-            const sc = statusMap[v.status] || statusMap.disponivel
-            return (
-              <div key={v.id} style={{ display:'flex', alignItems:'center', gap:'14px', padding:'14px 16px', borderBottom:'1px solid var(--border)' }}>
-                {/* Capa clicável */}
-                <div onClick={()=>cover ? openGallery(v.photos,0) : null} style={{ width:'90px', height:'68px', borderRadius:'9px', overflow:'hidden', flexShrink:0, cursor:cover?'pointer':'default', background:'var(--bg3)', display:'flex', alignItems:'center', justifyContent:'center', border:'1px solid var(--border)' }}>
-                  {cover ? <img src={cover} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <ImageIcon size={24} color="var(--muted2)" />}
-                </div>
-
-                {/* Info — nome clicável abre modal */}
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div onClick={()=>openDetail(v)} style={{ color:'var(--text)', fontWeight:'700', fontSize:'14px', cursor:'pointer', display:'inline-block' }}
-                    onMouseEnter={e=>e.currentTarget.style.color='var(--accent2)'}
-                    onMouseLeave={e=>e.currentTarget.style.color='var(--text)'}
-                  >
-                    {v.year_model} {v.brand} {v.model} {v.version||''}
-                  </div>
-                  <div style={{ color:'var(--muted2)', fontSize:'12px', marginTop:'3px' }}>{Number(v.km||0).toLocaleString('pt-BR')} km • {v.color||'—'} • {v.fuel} • {v.transmission}</div>
-                  {v.description && <div style={{ color:'var(--muted)', fontSize:'11px', marginTop:'3px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:'420px' }}>{v.description.substring(0,90)}...</div>}
-                  <div style={{ display:'flex', gap:'10px', marginTop:'4px' }}>
-                    {v.photos?.length > 0 && <button onClick={()=>openGallery(v.photos,0)} style={{ background:'none', border:'none', color:'var(--accent2)', fontSize:'11px', cursor:'pointer', padding:0 }}>📸 {v.photos.length} foto{v.photos.length>1?'s':''}</button>}
-                    {v.video_url && <button onClick={()=>window.open(v.video_url,'_blank')} style={{ background:'none', border:'none', color:'#ef4444', fontSize:'11px', cursor:'pointer', padding:0 }}>▶ Ver vídeo</button>}
-                  </div>
-                </div>
-
-                {/* Preço / ações */}
-                <div style={{ display:'flex', alignItems:'center', gap:'10px', flexShrink:0 }}>
-                  <span style={{ color:'#6dc200', fontWeight:'800', fontSize:'15px' }}>R$ {Number(v.price||0).toLocaleString('pt-BR')}</span>
-                  <span style={{ background:sc.bg, color:sc.c, padding:'3px 10px', borderRadius:'20px', fontSize:'11px', fontWeight:'600' }}>{sc.label}</span>
-                  <button onClick={e=>openEdit(v,e)} style={{ background:'rgba(59,130,246,0.1)', color:'#3b82f6', border:'none', padding:'6px 12px', borderRadius:'7px', fontSize:'12px', fontWeight:'600', cursor:'pointer' }}>Editar</button>
-                  <button onClick={e=>remove(v.id,e)} style={{ background:'rgba(239,68,68,0.1)', color:'#ef4444', border:'none', padding:'6px 12px', borderRadius:'7px', fontSize:'12px', fontWeight:'600', cursor:'pointer' }}>Remover</button>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </main>
-
-      {/* ═══════════ MODAL DETALHES ═══════════ */}
-      {detail && (
-        <div onClick={()=>setDetail(null)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:900, display:'flex', alignItems:'center', justifyContent:'center', padding:'20px' }}>
-          <div onClick={e=>e.stopPropagation()} style={{ background:'#111827', border:'1px solid #1f2937', borderRadius:'16px', width:'min(860px,95vw)', maxHeight:'90vh', overflowY:'auto', display:'flex', flexDirection:'column' }}>
-
-            {/* Header do modal */}
-            <div style={{ padding:'18px 22px', borderBottom:'1px solid #1f2937', display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, background:'#111827', zIndex:2 }}>
-              <div>
-                <h2 style={{ color:'#f9fafb', fontWeight:'800', fontSize:'18px' }}>{detail.year_model} {detail.brand} {detail.model} {detail.version||''}</h2>
-                <div style={{ color:'#9ca3af', fontSize:'12px', marginTop:'3px' }}>{detail.color} • {detail.fuel} • {detail.transmission}</div>
-              </div>
-              <div style={{ display:'flex', gap:'8px', alignItems:'center' }}>
-                <button onClick={e=>openEdit(detail,e)} style={{ background:'rgba(59,130,246,0.1)', color:'#3b82f6', border:'none', padding:'7px 14px', borderRadius:'8px', fontSize:'12px', fontWeight:'600', cursor:'pointer' }}>✏️ Editar</button>
-                <button onClick={()=>setDetail(null)} style={{ background:'rgba(255,255,255,0.08)', border:'none', borderRadius:'8px', width:'32px', height:'32px', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#9ca3af' }}><X size={16} /></button>
-              </div>
-            </div>
-
-            <div style={{ padding:'22px', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'20px' }}>
-
-              {/* Coluna esquerda */}
-              <div>
-                {/* Foto principal */}
-                <div style={{ borderRadius:'12px', overflow:'hidden', marginBottom:'10px', background:'#1a1d27', border:'1px solid #1f2937', aspectRatio:'16/9', display:'flex', alignItems:'center', justifyContent:'center', cursor: detail.photos?.length>0 ? 'pointer' : 'default' }}
-                  onClick={()=>detail.photos?.length>0 && openGallery(detail.photos, detailPhotoIdx)}
-                >
-                  {detail.photos?.length>0
-                    ? <img src={detail.photos[detailPhotoIdx]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-                    : <ImageIcon size={40} color="#6b7280" />
-                  }
-                </div>
-
-                {/* Thumbnails */}
-                {detail.photos?.length > 1 && (
-                  <div style={{ display:'flex', gap:'6px', overflowX:'auto', marginBottom:'10px' }}>
-                    {detail.photos.map((p,i) => (
-                      <img key={i} src={p} onClick={()=>setDetailPhotoIdx(i)} alt="" style={{ width:'56px', height:'42px', objectFit:'cover', borderRadius:'6px', cursor:'pointer', border: i===detailPhotoIdx ? '2px solid #a100c2' : '2px solid transparent', opacity: i===detailPhotoIdx ? 1 : 0.55, flexShrink:0 }} />
-                    ))}
-                  </div>
-                )}
-
-                {/* Botão abrir galeria completa */}
-                {detail.photos?.length > 0 && (
-                  <button onClick={()=>openGallery(detail.photos,0)} style={{ width:'100%', background:'rgba(161,0,194,0.1)', color:'var(--accent2)', border:'1px solid rgba(161,0,194,0.2)', borderRadius:'8px', padding:'8px', fontSize:'12px', cursor:'pointer', marginBottom:'10px' }}>
-                    🖼 Abrir galeria completa ({detail.photos.length} fotos)
-                  </button>
-                )}
-
-                {/* Link do vídeo */}
-                {detail.video_url && (
-                  <a href={detail.video_url} target="_blank" rel="noreferrer" style={{ display:'flex', alignItems:'center', gap:'8px', background:'rgba(239,68,68,0.1)', color:'#ef4444', border:'1px solid rgba(239,68,68,0.2)', borderRadius:'8px', padding:'10px 14px', fontSize:'13px', fontWeight:'600', textDecoration:'none', marginBottom:'10px' }}>
-                    <Play size={15} /> Ver vídeo do veículo <ExternalLink size={12} style={{ marginLeft:'auto' }} />
-                  </a>
-                )}
-              </div>
-
-              {/* Coluna direita */}
-              <div>
-                {/* Preço e status */}
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'16px' }}>
-                  <div style={{ color:'#6dc200', fontWeight:'800', fontSize:'26px' }}>R$ {Number(detail.price||0).toLocaleString('pt-BR')}</div>
-                  <span style={{ background:(statusMap[detail.status]||statusMap.disponivel).bg, color:(statusMap[detail.status]||statusMap.disponivel).c, padding:'4px 12px', borderRadius:'20px', fontSize:'12px', fontWeight:'700' }}>
-                    {(statusMap[detail.status]||statusMap.disponivel).label}
-                  </span>
-                </div>
-
-                {/* Especificações */}
-                <div style={{ background:'#1a1d27', borderRadius:'10px', padding:'14px', marginBottom:'14px' }}>
-                  <div style={{ color:'#9ca3af', fontSize:'11px', fontWeight:'600', letterSpacing:'0.5px', textTransform:'uppercase', marginBottom:'10px' }}>Especificações</div>
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px' }}>
-                    {[
-                      {l:'Ano modelo',    v:detail.year_model},
-                      {l:'Ano fab.',      v:detail.year_fab},
-                      {l:'Quilometragem', v:`${Number(detail.km||0).toLocaleString('pt-BR')} km`},
-                      {l:'Combustível',   v:detail.fuel},
-                      {l:'Câmbio',        v:detail.transmission},
-                      {l:'Cor',           v:detail.color},
-                    ].map(s => s.v ? (
-                      <div key={s.l} style={{ background:'#111827', borderRadius:'7px', padding:'8px 10px' }}>
-                        <div style={{ color:'#6b7280', fontSize:'10px', marginBottom:'2px' }}>{s.l}</div>
-                        <div style={{ color:'#f9fafb', fontSize:'13px', fontWeight:'600' }}>{s.v}</div>
-                      </div>
-                    ) : null)}
-                  </div>
-                </div>
-
-                {/* Descrição */}
-                {detail.description && (
-                  <div style={{ background:'#1a1d27', borderRadius:'10px', padding:'14px' }}>
-                    <div style={{ color:'#9ca3af', fontSize:'11px', fontWeight:'600', letterSpacing:'0.5px', textTransform:'uppercase', marginBottom:'8px' }}>Descrição</div>
-                    <div style={{ color:'#d1d5db', fontSize:'13px', lineHeight:'1.7', whiteSpace:'pre-line' }}>{detail.description}</div>
-                  </div>
-                )}
-              </div>
-            </div>
+      {/* Video Modal */}
+      {videoModalOpen && (
+        <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <button onClick={() => setVideoModalOpen(false)} className="absolute top-6 right-6 text-white/70 hover:text-white bg-white/10 p-2 rounded-full backdrop-blur-md transition-all"><X size={24}/></button>
+          <div className="w-full max-w-4xl aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/10">
+            {activeVideoUrl.includes('youtube') || activeVideoUrl.includes('youtu.be') ? (
+              <iframe className="w-full h-full" src={getEmbedUrl(activeVideoUrl)} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>
+            ) : (
+              <video src={activeVideoUrl} controls autoPlay className="w-full h-full"></video>
+            )}
           </div>
         </div>
       )}
 
-      {/* ═══════════ GALERIA FULLSCREEN ═══════════ */}
-      {gallery && (
-        <div onClick={()=>setGallery(null)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.95)', zIndex:1000, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' }}>
-          <button onClick={()=>setGallery(null)} style={{ position:'absolute', top:'18px', right:'22px', background:'rgba(255,255,255,0.1)', border:'none', borderRadius:'8px', padding:'7px 13px', color:'#fff', cursor:'pointer', fontSize:'18px' }}>✕</button>
-          <div style={{ position:'absolute', top:'22px', left:'50%', transform:'translateX(-50%)', color:'rgba(255,255,255,0.5)', fontSize:'12px' }}>{gallery.index+1} / {gallery.photos.length}</div>
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900 font-outfit tracking-tight">Estoque de Veículos</h1>
+          <p className="text-slate-500 mt-1">Gerencie seu catálogo e publique novas ofertas</p>
+        </div>
+        
+        <button
+          onClick={() => { setShowForm(true); setEditingVehicle(null); setFormData({ brand: '', model: '', year: '', price: '', mileage: '', color: '', fuel: '', transmission: '', status: 'available', description: '', video_url: '', photos: [] }); }}
+          className="btn-gradient flex items-center justify-center gap-2"
+        >
+          <Plus size={18} />
+          <span>Cadastrar Veículo</span>
+        </button>
+      </div>
 
-          <div onClick={e=>e.stopPropagation()} style={{ maxWidth:'85vw', maxHeight:'72vh' }}>
-            <img src={gallery.photos[gallery.index]} alt="" style={{ maxWidth:'100%', maxHeight:'72vh', borderRadius:'12px', objectFit:'contain' }} />
-          </div>
+      {/* Filtros */}
+      <div className="bg-white rounded-2xl border border-slate-200/60 p-5 mb-8 shadow-sm grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="md:col-span-2 relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+          <input 
+            placeholder="Buscar por marca ou modelo..." 
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 pl-9 pr-4 text-sm outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium"
+            value={filters.search}
+            onChange={(e) => setFilters({...filters, search: e.target.value})}
+          />
+        </div>
+        <select 
+          className="bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm outline-none font-semibold text-slate-600 focus:border-indigo-500 transition-all"
+          value={filters.status}
+          onChange={(e) => setFilters({...filters, status: e.target.value})}
+        >
+          <option value="">Status: Todos</option>
+          <option value="available">Disponível</option>
+          <option value="sold">Vendido</option>
+          <option value="reserved">Reservado</option>
+        </select>
+        <select 
+          className="bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm outline-none font-semibold text-slate-600 focus:border-indigo-500 transition-all"
+          value={filters.fuel}
+          onChange={(e) => setFilters({...filters, fuel: e.target.value})}
+        >
+          <option value="">Combustível: Todos</option>
+          <option value="flex">Flex</option>
+          <option value="gasolina">Gasolina</option>
+          <option value="diesel">Diesel</option>
+        </select>
+        <div className="flex gap-2">
+           <input placeholder="R$ Mín" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm outline-none" value={filters.minPrice} onChange={(e) => setFilters({...filters, minPrice: e.target.value})} />
+        </div>
+        <button 
+          onClick={() => setFilters({ search: '', status: '', fuel: '', transmission: '', minPrice: '', maxPrice: '' })}
+          className="text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl py-2 px-4 transition-colors"
+        >
+          Limpar Filtros
+        </button>
+      </div>
 
-          {gallery.photos.length > 1 && (
-            <>
-              <button onClick={e=>{e.stopPropagation();setGallery(g=>({...g,index:g.index===0?g.photos.length-1:g.index-1}))}} style={{ position:'absolute', left:'20px', top:'50%', transform:'translateY(-50%)', background:'rgba(255,255,255,0.1)', border:'none', borderRadius:'50%', width:'46px', height:'46px', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}><ChevronLeft size={22} color="#fff" /></button>
-              <button onClick={e=>{e.stopPropagation();setGallery(g=>({...g,index:g.index===g.photos.length-1?0:g.index+1}))}} style={{ position:'absolute', right:'20px', top:'50%', transform:'translateY(-50%)', background:'rgba(255,255,255,0.1)', border:'none', borderRadius:'50%', width:'46px', height:'46px', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}><ChevronRight size={22} color="#fff" /></button>
-              <div onClick={e=>e.stopPropagation()} style={{ position:'absolute', bottom:'20px', display:'flex', gap:'7px', maxWidth:'90vw', overflowX:'auto', padding:'4px' }}>
-                {gallery.photos.map((p,i) => (
-                  <img key={i} src={p} onClick={()=>setGallery(g=>({...g,index:i}))} alt="" style={{ width:'60px', height:'45px', objectFit:'cover', borderRadius:'5px', cursor:'pointer', border:i===gallery.index?'2px solid #a100c2':'2px solid transparent', opacity:i===gallery.index?1:0.55 }} />
-                ))}
+      {/* Main Container */}
+      <div className={`${showForm ? 'mb-12 translate-y-0 opacity-100' : 'hidden -translate-y-4 opacity-0'} transition-all duration-300`}>
+        <div className="card-premium p-8 bg-white overflow-hidden relative border-indigo-100 ring-1 ring-indigo-500/5">
+           <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-full blur-3xl -mr-16 -mt-16 opacity-50"></div>
+           
+           <div className="flex items-center justify-between mb-8">
+             <h2 className="text-xl font-bold font-outfit text-slate-900 flex items-center gap-2 relative">
+               <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-lg shadow-indigo-200"><Car size={20}/></div>
+               {editingVehicle ? 'Editar Dados do Veículo' : 'Cadastrar novo veículo no estoque'}
+             </h2>
+             <button onClick={() => setShowForm(false)} className="p-2 text-slate-400 hover:text-slate-900 transition-colors bg-slate-50 rounded-full"><X size={20}/></button>
+           </div>
+
+           <form onSubmit={handleSubmit} className="relative space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="space-y-1.5 focus-within:text-indigo-600 transition-colors">
+                   <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1.5 ml-1"><Monitor size={12}/> Marca</label>
+                   <input required value={formData.brand} onChange={e => setFormData({...formData, brand: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-4 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-medium" placeholder="Ex: Toyota" />
+                </div>
+                <div className="space-y-1.5 focus-within:text-indigo-600 transition-colors">
+                   <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1.5 ml-1"><Car size={12}/> Modelo</label>
+                   <input required value={formData.model} onChange={e => setFormData({...formData, model: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-4 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-medium" placeholder="Ex: Corolla XEI" />
+                </div>
+                <div className="space-y-1.5">
+                   <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1.5 ml-1"><Calendar size={12}/> Ano</label>
+                   <input type="number" value={formData.year} onChange={e => setFormData({...formData, year: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-4 outline-none" placeholder="2024" />
+                </div>
+                <div className="space-y-1.5 focus-within:text-indigo-600 transition-colors">
+                   <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1.5 ml-1"><Monitor size={12}/> Preço de Venda (R$)</label>
+                   <input value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-4 outline-none text-indigo-600 font-bold" placeholder="R$ 0,00" />
+                </div>
+                <div className="space-y-1.5">
+                   <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1.5 ml-1"><Zap size={12}/> Quilometragem (KM)</label>
+                   <input value={formData.mileage} onChange={e => setFormData({...formData, mileage: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-4 outline-none" placeholder="Ex: 15.000" />
+                </div>
+                <div className="space-y-1.5">
+                   <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1.5 ml-1"><Palette size={12}/> Cor</label>
+                   <input value={formData.color} onChange={e => setFormData({...formData, color: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-4 outline-none" placeholder="Branco" />
+                </div>
+                <div className="space-y-1.5">
+                   <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1.5 ml-1"><Fuel size={12}/> Combustível</label>
+                   <select className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-4 outline-none appearance-none" value={formData.fuel} onChange={e => setFormData({...formData, fuel: e.target.value})}>
+                      <option value="">Selecione</option>
+                      <option value="flex">Flex</option>
+                      <option value="gasolina">Gasolina</option>
+                      <option value="diesel">Diesel</option>
+                   </select>
+                </div>
+                <div className="space-y-1.5">
+                   <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1.5 ml-1"><Settings size={12}/> Câmbio</label>
+                   <select className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-4 outline-none appearance-none" value={formData.transmission} onChange={e => setFormData({...formData, transmission: e.target.value})}>
+                      <option value="">Selecione</option>
+                      <option value="manual">Manual</option>
+                      <option value="automático">Automático</option>
+                      <option value="cvt">CVT</option>
+                   </select>
+                </div>
               </div>
-            </>
-          )}
+
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+                <div className="lg:col-span-3 space-y-6">
+                   <div className="space-y-3">
+                     <div className="flex items-center justify-between">
+                       <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Descrição do Veículo</label>
+                       <button type="button" onClick={generateDescription} disabled={aiLoading} className="flex items-center gap-2 text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-full px-3 py-1 hover:bg-indigo-600 hover:text-white transition-all">
+                         <Sparkles size={12}/> {aiLoading ? 'Processando IA...' : 'GERAR DESCRIÇÃO COM IA'}
+                       </button>
+                     </div>
+                     <textarea rows={4} value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-4 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 resize-none font-medium leading-relaxed" placeholder="Destaque os diferenciais do carro..." />
+                   </div>
+
+                   <div className="space-y-3">
+                     <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1 flex items-center gap-2"><Video size={14} className="text-red-500"/> Link Externo do Vídeo (YouTube / Vimeo)</label>
+                     <input value={formData.video_url} onChange={e => setFormData({...formData, video_url: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-4 outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500" placeholder="https://www.youtube.com/watch?v=..." />
+                   </div>
+                </div>
+
+                <div className="space-y-4">
+                   <label className="text-xs font-bold text-slate-500 uppercase tracking-widest ml-1">Galeria de Fotos</label>
+                   
+                   <div className="grid grid-cols-3 gap-2 mb-4">
+                     {formData.photos.map((photo, i) => (
+                       <div key={i} className="aspect-square rounded-lg bg-slate-100 relative group overflow-hidden border border-slate-200">
+                         <img src={photo} className="w-full h-full object-cover" />
+                         <button 
+                           type="button" 
+                           onClick={() => setFormData({...formData, photos: formData.photos.filter((_, idx) => idx !== i)})}
+                           className="absolute top-1 right-1 p-1 bg-rose-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                         >
+                           <X size={10}/>
+                         </button>
+                       </div>
+                     ))}
+                     {formData.photos.length < 6 && (
+                       <button 
+                        type="button" 
+                        onClick={() => fileInputRef.current.click()}
+                        disabled={uploading}
+                        className="aspect-square flex flex-col items-center justify-center gap-1 border-2 border-dashed border-slate-200 rounded-lg text-slate-400 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
+                       >
+                         {uploading ? <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent animate-spin rounded-full"></div> : <Plus size={20}/>}
+                         <span className="text-[8px] font-bold">{uploading ? 'ENVIANDO' : 'ADD FOTO'}</span>
+                       </button>
+                     )}
+                   </div>
+                   
+                   <input 
+                     type="file" 
+                     multiple 
+                     accept="image/*" 
+                     className="hidden" 
+                     ref={fileInputRef} 
+                     onChange={handleFileUpload} 
+                   />
+
+                   <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl">
+                      <p className="text-[10px] text-amber-700 font-bold leading-tight">
+                        DICA: Salve os dados básicos antes de subir fotos para vincular corretamente ao veículo.
+                      </p>
+                   </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-6 border-t border-slate-100">
+                <button type="button" onClick={() => setShowForm(false)} className="px-6 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-semibold hover:bg-slate-50 transition-all font-outfit">Sair sem salvar</button>
+                <button type="submit" className="btn-gradient px-12 py-3 shadow-xl shadow-indigo-200">Confirmar e Publicar Inventário</button>
+              </div>
+           </form>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-32 gap-6 animate-in fade-in transition-all">
+          <div className="w-14 h-14 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+          <div className="text-center">
+            <p className="text-slate-400 font-bold tracking-widest uppercase text-xs">Sincronizando Inventário</p>
+            <p className="text-slate-300 text-[10px] uppercase font-bold mt-1">Acessando Supabase...</p>
+          </div>
+        </div>
+      ) : vehicles.length === 0 ? (
+        <div className="card-premium py-32 flex flex-col items-center border-dashed border-2">
+           <div className="w-20 h-20 rounded-full bg-slate-50 flex items-center justify-center mb-6">
+             <Car size={40} className="text-slate-200" />
+           </div>
+           <h3 className="text-xl font-bold font-outfit text-slate-900">Nenhum Veículo no Pátio</h3>
+           <p className="text-slate-400 text-sm mt-1 max-w-xs text-center font-medium">Seu inventário digital está iluminado pelo vazio. Comece a cadastrar os veículos agora mesmo.</p>
+           <button onClick={() => setShowForm(true)} className="mt-8 text-indigo-600 font-bold text-sm bg-indigo-50 px-6 py-2 rounded-full hover:bg-indigo-600 hover:text-white transition-all">Começar agora</button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {vehicles.map((v) => (
+            <div key={v.id} className="bg-white rounded-[2.5rem] p-4 shadow-sm hover:shadow-xl hover:shadow-indigo-500/10 transition-all duration-500 group border border-slate-100">
+               <div className="h-60 bg-slate-950 rounded-[2rem] relative flex items-center justify-center overflow-hidden">
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent z-10 opacitiy-60"></div>
+                  
+                  {v.photos && v.photos.length > 0 ? (
+                    <img 
+                      src={v.photos[0]} 
+                      className="w-full h-full object-cover opacity-90 group-hover:scale-110 transition-transform duration-700 cursor-pointer" 
+                      onClick={() => openGallery(v.photos)}
+                    />
+                  ) : (
+                    <Car size={80} className="text-white/5 opacity-20" />
+                  )}
+
+                  <div className="absolute top-4 left-4 z-20 flex gap-2">
+                    <span className={`px-4 py-1.5 rounded-full text-[10px] font-extrabold uppercase tracking-widest backdrop-blur-md shadow-lg ${
+                      v.status === 'available' ? 'bg-emerald-500 text-white' : 
+                      v.status === 'sold' ? 'bg-rose-500 text-white' : 'bg-amber-500 text-white'
+                    }`}>
+                      {v.status === 'available' ? 'Pátio' : v.status === 'sold' ? 'Vendido' : 'Reservado'}
+                    </span>
+                  </div>
+
+                  {v.video_url && (
+                    <button 
+                      onClick={() => openVideo(v.video_url)}
+                      className="absolute center-absolute z-20 w-14 h-14 bg-white/20 hover:bg-white/40 text-white backdrop-blur-xl rounded-full flex items-center justify-center border border-white/30 transform scale-0 group-hover:scale-100 transition-all duration-500 shadow-2xl"
+                    >
+                      <Play fill="currentColor" size={24}/>
+                    </button>
+                  )}
+
+                  {v.photos && v.photos.length > 1 && (
+                    <button 
+                      onClick={() => openGallery(v.photos)}
+                      className="absolute bottom-4 right-4 z-20 px-3 py-1 bg-black/40 text-white text-[10px] font-bold rounded-full backdrop-blur-md border border-white/10"
+                    >
+                      +{v.photos.length - 1} FOTOS
+                    </button>
+                  )}
+               </div>
+
+               <div className="p-6 space-y-5">
+                  <div className="flex items-start justify-between">
+                     <div className="space-y-1">
+                       <span className="text-indigo-600 text-[10px] font-bold uppercase tracking-widest">{v.brand}</span>
+                       <h3 className="text-xl font-bold text-slate-900 font-outfit tracking-tight group-hover:text-indigo-600 transition-colors">{v.model}</h3>
+                     </div>
+                     <span className="text-xl font-extrabold text-slate-900 font-outfit">R$ {parseFloat(v.price || 0).toLocaleString('pt-BR')}</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                     <div className="flex items-center gap-2.5 text-slate-500 text-xs font-bold bg-slate-50 p-2.5 rounded-2xl">
+                        <Calendar size={14} className="text-indigo-500"/> {v.year}
+                     </div>
+                     <div className="flex items-center gap-2.5 text-slate-500 text-xs font-bold bg-slate-50 p-2.5 rounded-2xl">
+                        <Zap size={14} className="text-indigo-500"/> {v.mileage?.toLocaleString('pt-BR')} KM
+                     </div>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed opacity-80 italic font-medium">
+                    {v.description || 'Veículo premium aguardando descrição personalizada via IA.'}
+                  </p>
+
+                  <div className="flex items-center justify-between pt-5 border-t border-slate-50">
+                     <div className="flex gap-2.5">
+                       <button onClick={() => handleEdit(v)} className="w-10 h-10 bg-slate-50 text-slate-400 rounded-xl hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center hover:shadow-lg hover:shadow-indigo-200">
+                         <Edit3 size={18} />
+                       </button>
+                       <button onClick={() => handleDelete(v.id)} className="w-10 h-10 bg-slate-50 text-slate-400 rounded-xl hover:bg-rose-600 hover:text-white transition-all flex items-center justify-center hover:shadow-lg hover:shadow-rose-200">
+                         <Trash2 size={18} />
+                       </button>
+                     </div>
+                     
+                     <div className="flex items-center gap-2 text-indigo-600 font-bold text-[10px] uppercase tracking-widest bg-indigo-50 px-4 py-2 rounded-full">
+                       Destaque <CheckCircle size={14}/>
+                     </div>
+                  </div>
+               </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
-  )
+  );
 }
